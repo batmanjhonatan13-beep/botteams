@@ -1,0 +1,21 @@
+services:
+  atendente:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: atendente:local
+    container_name: atendente
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # a memoria das conversas sobrevive ao reinicio
+      - ./memoria:/app/memoria
+      # e o acervo de docs internas e uma pasta sua: exporte o site interno para ca
+      - ./acervo:/app/acervo:ro
+      - ./perfil.md:/app/perfil.md:ro
+    extra_hosts:
+      # para o container enxergar o Ollama que roda na SUA maquina, use
+      # MODELO_URL=http://host.docker.internal:11434
+      - "host.docker.internal:host-gateway"
