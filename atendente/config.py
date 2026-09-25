@@ -60,6 +60,10 @@ class Config:
     # ---- quem e o time. Outro time troca este arquivo e o bot muda de dono.
     perfil: str = field(default_factory=lambda: _txt("PERFIL_ARQUIVO", str(RAIZ / "perfil.md")))
 
+    # ---- o Bot Framework Emulator. Vazio quando a API roda direto na maquina; com a API
+    # no Docker, host.docker.internal — o localhost do Emulator nao e o do container.
+    emulador_host: str = field(default_factory=lambda: _txt("EMULADOR_HOST"))
+
     def tem_confluence(self) -> bool:
         return bool(self.confluence_url and self.confluence_usuario and self.confluence_token)
 

@@ -17,6 +17,8 @@ ficha é tempo de CPU. Aqui o prompt do décimo turno tem o mesmo tamanho do pri
 - **Memória visível e persistente**: dá para olhar o que o bot entendeu, e ela sobrevive
   ao reinício do container.
 
+- **Porta do Bot Framework** (`/api/messages`) para conversar pelo Bot Framework Emulator.
+
 Ainda **não** existe, de propósito: Teams, formulários, abertura de card, escrita no
 Jira, Grafana, Kubernetes, Splunk. A fase 1 é a base sobre a qual isso tudo entra.
 
@@ -59,11 +61,63 @@ diz que a API entendeu que o assunto continua sendo o Falcão.
 | `GET /busca?q=` | o que o RAG acharia, **sem gastar o modelo** |
 | `GET /acervo` · `POST /acervo/recarregar` | o retrato do acervo e o reindex |
 | `GET /saude` | modelo no ar? Confluence responde? quantos docs? |
+| `POST /api/messages` | a porta do Bot Framework Emulator (ver abaixo) |
 | `GET /docs` | o Swagger, de graça pelo FastAPI |
 
 `POST /conversa` com `"so_montar": true` devolve **o prompt que iria para o modelo**, sem
 chamá-lo. É com isso que se descobre se a resposta ruim veio de busca ruim ou de modelo
 ruim.
+
+## Conversar pelo Bot Framework Emulator (Windows)
+
+O Emulator fala o protocolo do Bot Framework: ele manda a mensagem em `/api/messages`, a
+API responde `200` na hora e a resposta volta depois, num POST da API para o Emulator.
+Por isso o "digitando" aparece antes, e a resposta chega quando o modelo terminar.
+
+**1. Suba a API** direto no Windows, sem Docker — é o caminho mais simples, porque API e
+Emulator ficam no mesmo `localhost`. No PowerShell, na pasta do projeto:
+
+```powershell
+py -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+$env:MODELO_URL  = "http://127.0.0.1:11434"   # o Ollama
+$env:MODELO_NOME = "qwen2.5:14b"              # como o `ollama list` mostra
+.venv\Scripts\uvicorn atendente.app:app --reload --port 8080
+```
+
+Confira em `http://localhost:8080/saude` que `modelo.ok` é `true`.
+
+**2. Instale o Emulator:** baixe o `BotFramework-Emulator-*-windows-setup.exe` em
+<https://github.com/microsoft/BotFramework-Emulator/releases>.
+
+**3. Conecte:** *Open Bot* e preencha
+
+| campo | valor |
+|---|---|
+| Bot URL | `http://localhost:8080/api/messages` |
+| Microsoft App ID | *(vazio)* |
+| Microsoft App password | *(vazio)* |
+
+Ao conectar chega a mensagem de boas-vindas — é o sinal de que a porta e a volta
+funcionam, sem gastar o modelo. Cada conversa do Emulator tem a sua memória (o
+`conversation.id` dele); *Restart conversation* começa do zero, e `GET /conversa/{id}`
+mostra o que o bot entendeu.
+
+**Com a API no Docker Desktop**, acrescente ao `.env`:
+
+```
+EMULADOR_HOST=host.docker.internal
+```
+
+O Emulator diz "responda em `http://localhost:PORTA`", e o `localhost` de dentro do
+container não é o do Windows; isto troca só o nome, mantendo a porta. Se a resposta não
+chegar, o log do container diz `canal: nao consegui responder em ...` — aí o caminho sem
+Docker, acima, é o que resolve.
+
+**O que esta porta não faz:** ela não confere assinatura (JWT) nem pede token para
+responder — é o modo do Emulator sem App ID. Por isso ela só responde para um endereço
+desta máquina (`localhost`, `127.0.0.1`, `::1`) e recusa o resto com `403`. O Teams de
+verdade precisa das duas coisas, e entra noutra fase.
 
 ## Como um turno funciona
 
@@ -153,12 +207,12 @@ Os oito turnos da conversa de exemplo pedem `4096` nos oito.
 .venv/bin/python testes/rodar_tudo.py
 ```
 
-Cinco provas, nenhuma precisa de modelo nem de rede — o modelo e o Confluence entram por
-injeção. Elas rodam em milissegundos e cobrem: a memória (assunto, pergunta pendurada,
-lista que sobrevive, resumo rolante), a busca (acento, plural, camelCase, IP, o vizinho
-que não pode vir junto), a forma das perguntas, a API de ponta a ponta e a leitura do
-Confluence — incluindo a conferência de que **não existe POST, PUT ou DELETE** naquele
-arquivo.
+Seis provas, nenhuma precisa de modelo nem de rede — o modelo, o Confluence e o Emulator
+entram por injeção. Elas rodam em milissegundos e cobrem: a memória (assunto, pergunta
+pendurada, lista que sobrevive, resumo rolante), a busca (acento, plural, camelCase, IP, o
+vizinho que não pode vir junto), a forma das perguntas, a API de ponta a ponta, a porta do
+Emulator (a resposta pela volta, a trava do endereço local) e a leitura do Confluence —
+incluindo a conferência de que **não existe POST, PUT ou DELETE** naquele arquivo.
 
 E a bancada, que conversa com o modelo de verdade e mede o tamanho do prompt ao longo de
 oito turnos:

@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from . import acervo, busca, config, confluence, fio as F, memoria, modelo
+from . import acervo, busca, canal, config, confluence, fio as F, memoria, modelo
 
 
 @asynccontextmanager
@@ -192,3 +192,34 @@ def conversar(p: Pergunta, tarefas: BackgroundTasks):
                 "letras_de_fatos": len(achado["texto"]),
                 "letras_de_digesto": len(digesto["texto"])},
     )
+
+
+@app.post("/api/messages")
+def mensagem_do_canal(atividade: dict, tarefas: BackgroundTasks):
+    """A porta do Bot Framework Emulator. Responde 200 na hora; a resposta de verdade vai
+    por outro pedido, depois do modelo — ver canal.py."""
+    base = canal.para_onde(atividade)
+    if not base:
+        raise HTTPException(status_code=403, detail="serviceUrl fora desta maquina: esta "
+                            "porta so atende o Emulator local, sem App ID")
+    if canal.e_pergunta(atividade):
+        tarefas.add_task(_atender_no_canal, atividade, base)
+    elif canal.chegou_gente(atividade):
+        tarefas.add_task(canal.enviar, atividade,
+                         canal.resposta_para(atividade, "message", canal.BOAS_VINDAS), base)
+    return {}
+
+
+def _atender_no_canal(atividade: dict, base: str) -> None:
+    """Um turno vindo do Emulator: o mesmo /conversa, com a resposta indo pelo canal."""
+    canal.enviar(atividade, canal.resposta_para(atividade, "typing"), base)
+    p = Pergunta(texto=canal.texto_de(atividade), conversa_id=canal.conversa_de(atividade),
+                 quem=canal.quem_perguntou(atividade))
+    try:
+        # o resumo que o conversar agenda fica num BackgroundTasks que ninguem roda: aqui
+        # ja estamos depois do 200, entao ele roda direto, embaixo
+        texto = canal.texto_da_resposta(conversar(p, BackgroundTasks()))
+    except HTTPException as e:
+        texto = f"Nao consegui falar com o modelo agora: {e.detail}"
+    canal.enviar(atividade, canal.resposta_para(atividade, "message", texto), base)
+    _resumir_depois(p.conversa_id)
